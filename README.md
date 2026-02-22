@@ -26,36 +26,48 @@ func ReorderByIndex[T any](in <-chan Seq[T]) <-chan T
 ## Example
 
 ```go
-type Item struct{ ID int }
-
 func main() {
-    in := make(chan chanseq.Seq[Item])
-    out := chanseq.ReorderByIndex(in)
+	in := make(chan chanseq.Seq[int])
+	out := chanseq.ReorderByIndex(in)
 
-    // Simulate out-of-order production.
-    go func() {
-        defer close(in)
-        // index 0 arrives late
-        go func() {
-            time.Sleep(50 * time.Millisecond)
-            v := Item{ID: 0}
-            in <- chanseq.Seq[Item]{Index: 0, Val: &v}
-        }()
-        // index 1 arrives early
-        go func() {
-            v := Item{ID: 1}
-            in <- chanseq.Seq[Item]{Index: 1, Val: &v}
-        }()
-        // index 2 is “missing” (skipped)
-        in <- chanseq.Seq[Item]{Index: 2, Val: nil}
-        // index 3 arrives
-        v3 := Item{ID: 3}
-        in <- chanseq.Seq[Item]{Index: 3, Val: &v3}
-    }()
+	// Simulate out-of-order production.
+	go func() {
+		var wg sync.WaitGroup
 
-    // Output (in order): 0, 1, 3
-    for v := range out {
-        fmt.Println(v.ID)
-    }
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			time.Sleep(50 * time.Millisecond)
+
+			// Send index 0 after a delay, simulating late arrival
+			val0 := 0
+			in <- chanseq.Seq[int]{Index: 0, Val: &val0}
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			// Send index 1 immediately, simulating early arrival
+			val1 := 1
+			in <- chanseq.Seq[int]{Index: 1, Val: &val1}
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			// Send index 2 with Val == nil, simulating a missing item
+			in <- chanseq.Seq[int]{Index: 2, Val: nil}
+		}()
+
+		wg.Wait()
+		close(in)
+	}()
+
+	// Output (in order): 0, 1
+	for i := range out {
+		fmt.Println(i)
+	}
 }
 ```
